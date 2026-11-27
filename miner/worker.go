@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip1559"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	"github.com/ethereum/go-ethereum/core"
@@ -227,6 +228,11 @@ func (miner *Miner) prepareWork(genParams *generateParams, witness bool) (*envir
 	if err != nil {
 		log.Error("Failed to create sealing context", "err", err)
 		return nil, err
+	}
+	// Endurance recovery fork: same state change, same position as in
+	// core.StateProcessor.Process, otherwise built blocks get rejected.
+	if misc.IsRecoveryBlock(miner.chainConfig, header.Number.Uint64()) {
+		misc.ApplyRecoveryHardFork(env.state)
 	}
 	if header.ParentBeaconRoot != nil {
 		core.ProcessBeaconBlockRoot(*header.ParentBeaconRoot, env.evm)

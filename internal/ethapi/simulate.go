@@ -27,6 +27,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip1559"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	"github.com/ethereum/go-ethereum/core"
@@ -236,6 +237,10 @@ func (sim *simulator) processBlock(ctx context.Context, block *simBlock, header,
 			Tracer:    tracer.Hooks(),
 		}
 	)
+	// Endurance recovery fork, applied before system calls as in block processing.
+	if misc.IsRecoveryBlock(sim.chainConfig, header.Number.Uint64()) {
+		misc.ApplyRecoveryHardFork(sim.state)
+	}
 	tracingStateDB := vm.StateDB(sim.state)
 	if hooks := tracer.Hooks(); hooks != nil {
 		tracingStateDB = state.NewHookedState(sim.state, hooks)

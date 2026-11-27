@@ -34,6 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/beacon"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -47,6 +48,7 @@ import (
 	"github.com/ethereum/go-ethereum/internal/ethapi/override"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 )
 
 var (
@@ -1049,6 +1051,46 @@ func newStates(keys []common.Hash, vals []common.Hash) map[common.Hash]common.Ha
 		m[keys[i]] = vals[i]
 	}
 	return m
+}
+
+// recordingTraceBackend captures the parent state passed back for historical replay.
+type recordingTraceBackend struct {
+	*testBackend
+	replayBase *state.StateDB
+}
+
+func (b *recordingTraceBackend) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, readOnly, preferDisk bool) (*state.StateDB, StateReleaseFunc, error) {
+	b.replayBase = base
+	return b.testBackend.StateAtBlock(ctx, block, reexec, base, readOnly, preferDisk)
+}
+
+func TestRecoveryTraceChainPreservesReplayBase(t *testing.T) {
+	debtor := common.HexToAddress("0x1000")
+	recipient := common.HexToAddress("0x2000")
+	const initial = 1000
+	fork := &misc.RecoveryForkConfig{
+		ChainID:       params.TestChainConfig.ChainID.Uint64(),
+		BlockNumber:   1,
+		Recipient:     recipient,
+		Debits:        []misc.RecoveryDebit{{Address: debtor, Amount: uint256.NewInt(100)}},
+		ExpectedTotal: uint256.NewInt(100),
+	}
+	defer misc.SetRecoveryForkForTesting(fork)()
+	genesis := &core.Genesis{
+		Config: params.TestChainConfig,
+		Alloc:  types.GenesisAlloc{debtor: {Balance: big.NewInt(initial)}},
+	}
+	backend := &recordingTraceBackend{testBackend: newTestBackend(t, 2, genesis, nil)}
+	defer backend.teardown()
+	for range NewAPI(backend).traceChain(backend.chain.Genesis(), backend.chain.GetBlockByNumber(2), nil, nil) {
+	}
+	// To reconstruct block 1, hashState will apply its recovery to this base.
+	if backend.replayBase == nil {
+		t.Fatal("missing replay base for the recovery block")
+	}
+	if got := backend.replayBase.GetBalance(debtor); !got.Eq(uint256.NewInt(initial)) {
+		t.Fatalf("balance before replay = %v, want %d", got, initial)
+	}
 }
 
 func TestTraceChain(t *testing.T) {

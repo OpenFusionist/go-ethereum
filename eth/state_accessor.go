@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -233,6 +234,10 @@ func (eth *Ethereum) stateAtTransaction(ctx context.Context, block *types.Block,
 	statedb, release, err := eth.stateAtBlock(ctx, parent, reexec, nil, true, false)
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, nil, err
+	}
+	// Endurance recovery fork, applied before system calls as in block processing.
+	if misc.IsRecoveryBlock(eth.blockchain.Config(), block.NumberU64()) {
+		misc.ApplyRecoveryHardFork(statedb)
 	}
 	// Insert parent beacon block root in the state as per EIP-4788.
 	context := core.NewEVMBlockContext(block.Header(), eth.blockchain, nil)
